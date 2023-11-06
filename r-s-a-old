@@ -1,0 +1,647 @@
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  Platform,
+  ActivityIndicator,
+  Image
+} from 'react-native';
+import { Card } from 'react-native-paper';
+import { useTranslation } from 'react-i18next';
+import { TouchableOpacity } from 'react-native-gesture-handler';
+import { useDispatch, useSelector } from 'react-redux';
+import SelectList from 'react-native-dropdown-select-list';
+import HeaderScreenBuy from '../components/HeaderScreenBuy';
+import { BluButton } from '../../onboarding/components';
+import { countries } from '../../../shared/utils/countries';
+import { RootState, AppDispatch } from '../../../shared/store/index';
+import RefreshIcon from '../../../shared/assets/images/refresh-icon.png';
+import {
+  ECOBANK_ACCOUNT_ONBOARD_URL,
+  GET_BANKS_URL,
+  GET_REDEMPTION_ACCOUNT,
+  OTHER_BANKS_ACCOUNT_ENQUIRY
+} from '../../../shared/utils/constants';
+import {
+  post,
+  useAuthHook,
+  usePostApiCall
+} from '../../../shared/hooks/apiHooks';
+import { Loader } from '../../../shared/components';
+import { updateUserState } from '../../../shared/store/slices/user';
+
+const RedemptionAmountScreen = ({ navigation }: any) => {
+  const { t } = useTranslation();
+  const [price, setPrice] = useState('');
+  const [accNum, setAccNum] = useState('');
+  const [proceed, setProceed] = useState(false);
+  let selBank: string[];
+  const userState = useSelector((state: RootState) => state.user);
+  const { userData } = userState;
+  const { redemptionProductData } = userData;
+  const affiliateCode = userData?.affiliateCode;
+  const affiliateLocale = countries.find(
+    x => `E${x?.countryCode}` === affiliateCode
+  )?.locale;
+  const affiliateCurrencyCode = countries.find(
+    x => `E${x?.countryCode}` === affiliateCode
+  )?.countryCcy;
+  const affiliateCurrency = countries.find(
+    x => `E${x?.countryCode}` === affiliateCode
+  )?.currency;
+  const hasRedemptionAcct = userData?.hasRedemptionAcct;
+  const selectedProduct = userData?.redemptionProductData?.fund_name;
+  const investedAmount = userData?.redemptionProductData?.buying_amount;
+  const minRedeemAmt = userData?.redemptionProductData?.minAmt;
+  const maxRedeemAmt = userData?.redemptionProductData?.maxAmt;
+
+  const cnty = `E${userData?.affiliateCode?.substring(1, 3)}`;
+
+  const [authToken] = useAuthHook();
+
+  // GET THE LIST OF BANKS IF REDEMPTION ACCOUNT IS NOT SET
+  const [banksList, banksLoading, banksError] = usePostApiCall({
+    url: GET_BANKS_URL,
+    headers: {
+      Authorization: `Bearer ${authToken}`
+    },
+    requestPayload: { destinationCountry: cnty, affiliateCode: cnty }
+  });
+
+  const amountFormatter = (amount: number) => {
+    return new Intl.NumberFormat(affiliateLocale, {
+      style: 'currency',
+      currency: affiliateCurrencyCode,
+      currencyDisplay: 'symbol'
+    }).format(amount);
+  };
+
+  // console.log(
+  //   userData?.redemptionAccountData,
+  //   '===redemptionAccountDat===',
+  //   userData
+  // );
+  const { accountName, accountNo, bankName } =
+    userData?.redemptionAccountData || {};
+
+  const [bankSelect, setBankSelect] = useState('');
+  const customerBanks = banksList ? Object.entries(banksList?.data) : [];
+  // console.log('Customer Banks', customerBanks);
+  const [bankCode, setBankCode] = useState(`E${userData?.country}`);
+  const [ecoNameData, setEcoNameData] = useState<{} | any>(null);
+  const [ecoNameLoading, setEcoNameLoading] = useState<{} | any>(false);
+  const [ecoNameError, setEcoNameError] = useState<{} | any>(null);
+  const [disableContinue, setDisableContinue] = useState(false);
+  const [verif, setVerify] = useState(false);
+  const call = async (otp: any, payload: any) => {
+    setEcoNameError(null);
+    setEcoNameData(null);
+    setEcoNameLoading(true);
+    setProceed(false);
+    await post(otp, {}, payload)
+      .then(res => {
+        // console.log(res, 'res');
+        // setEcoNameLoading(false);
+        if (
+          res.data?.responseCode !== '200' &&
+          !res.data?.responseCode.startsWith('0') &&
+          res.data?.responseCode !== '111'
+        ) {
+          setEcoNameError({
+            code: res?.data?.responseCode,
+
+            message: `${
+              res.data?.responseMessage
+              // : 'Failed  Request'
+            }`
+          });
+          setEcoNameLoading(false);
+          setDisableContinue(false);
+        } else if (res.data?.data?.accountName == null) {
+          setEcoNameError({
+            code: res?.data?.responseCode,
+
+            message: `${t('failed_request')}`
+          });
+          setDisableContinue(false);
+          setEcoNameLoading(false);
+        } else if (
+          res?.data?.data?.blockedStatus !== 'N' ||
+          res?.data?.data?.pncStatus !== 'N' ||
+          res?.data?.data?.frozenStatus !== 'N'
+          // ||
+          // res?.data?.data?.dormantStatus !== 'N'
+        ) {
+          setEcoNameError({
+            code: '99a',
+
+            message: `${t('acc_num_is_on')} ${
+              res?.data?.data?.blockedStatus !== 'N'
+                ? 'BLOCKED'
+                : res?.data?.data?.frozenStatus !== 'N'
+                ? 'FROZEN'
+                : res?.data?.data?.pncStatus !== 'N'
+                ? 'PNC'
+                : ''
+            }. ${t('cant_proceed_transaction')}`
+          });
+          setDisableContinue(false);
+          setEcoNameLoading(false);
+        } else {
+          setEcoNameData(res?.data);
+          // setEcoAccName(res?.data)
+          setEcoNameError(null);
+          setProceed(true);
+          setDisableContinue(true);
+          setEcoNameLoading(false);
+        }
+      })
+      .catch(err => {
+        // console.error(err, '--err--');
+        setEcoNameError({ code: err.code, message: t('failed_request') });
+        setEcoNameLoading(false);
+        setDisableContinue(false);
+        setProceed(false);
+      });
+  };
+
+  // useEffect(() => {
+  //   console.log(banksList, '==bankslist', banksList?.data);
+  // }, [banksList]);
+
+  // VALIDATING ECOBANK REDEMPTION ACCOUNT
+  const ecoNameDataRequest = {
+    affiliate: `E${userData?.country}`,
+    accountNumber: accNum
+  };
+
+  // VALIDATING NON-ECOBANK REDEMPTION ACCOUNT
+  const otherBankNameDataRequest = {
+    destinationBankCode: bankCode || '',
+    accountNo: accNum
+  };
+
+  const handleVerify = () => {
+    if (bankCode === 'ENG' || bankCode?.startsWith('ECO')) {
+      call(ECOBANK_ACCOUNT_ONBOARD_URL, ecoNameDataRequest);
+    } else {
+      // console.log("It's here::::");
+
+      call(OTHER_BANKS_ACCOUNT_ENQUIRY, otherBankNameDataRequest);
+    }
+  };
+
+  const dispatch = useDispatch<AppDispatch>();
+
+  const investedAmountFormatted = `${amountFormatter(investedAmount)}`;
+  const liqAmt = `${amountFormatter(+price)}`;
+
+  return (
+    // <ScrollView style={style.container}>
+    <HeaderScreenBuy
+      titleLeft={t('financial_plan')}
+      actionRight={t('back')}
+      closePressFunction={() => {
+        navigation.navigate('SelectProductScreen', { selectedProduct });
+      }}
+      wantUnderLine={false}
+      style={{ backgroundColor: 'white' }}
+    >
+      <View style={{ padding: 10 }}>
+        <View>
+          <Text style={{ fontSize: 12, fontWeight: '400', bottom: 45 }}>
+            {t('selected_product')}
+          </Text>
+        </View>
+        <View
+          style={{
+            bottom: 30,
+            display: 'flex',
+            flexDirection: 'row',
+            justifyContent: 'space-between'
+          }}
+        >
+          <Text style={{ fontWeight: '500', fontSize: 14 }}>
+            {selectedProduct}
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              navigation.navigate('SelectProductScreen');
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: '600',
+                textDecorationLine: 'underline',
+                marginRight: 15
+              }}
+            >
+              {t('change')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <View style={style.dividerOne} />
+      </View>
+
+      <View style={{ alignSelf: 'center' }}>
+        <Text style={{ fontSize: 18, bottom: 19, textAlign: 'center' }}>
+          {t('dash_balance')}
+        </Text>
+        <Text
+          style={{
+            fontSize: 26,
+            fontWeight: '500',
+            alignSelf: 'center',
+            bottom: 10
+          }}
+        >
+          {investedAmountFormatted}
+        </Text>
+      </View>
+      <View style={style.dividerTwo} />
+
+      <View style={{ top: 30, alignItems: 'center' }}>
+        <View>
+          <Text style={{ fontWeight: '300', fontSize: 18 }}>
+            {t('enter_liq_amt')}
+          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              alignSelf: 'center'
+            }}
+          >
+            {price && (
+              <Text
+                style={{
+                  fontWeight: '500',
+                  fontSize: 25,
+                  marginRight: Platform.OS === 'ios' ? 3 : 5
+                }}
+              >
+                {Platform.OS === 'ios'
+                  ? affiliateCurrency
+                  : affiliateCurrencyCode}
+              </Text>
+            )}
+            <TextInput
+              // editable={
+              //   !(Number(minRedeemAmt) > Number(investedAmount)) &&
+              //   Number(investedAmount) > 0
+              // }
+              style={{
+                fontWeight: '600',
+                fontSize: 25,
+                paddingVertical: 10
+              }}
+              value={`${price}`}
+              placeholder={`${amountFormatter(0.0)}`}
+              placeholderTextColor="#E0E0E0"
+              onChangeText={e => {
+                const cleanedInput = e
+                  .replace(/[^\d.]/g, '') // remove all non-digits and non-decimal points
+                  .replace(/(\.[^.]*)\./g, '$1') // replace subsequent decimal points with a single decimal point
+                  .replace(/^(\d*\.?\d{0,2}).*$/, '$1'); // limit the number of digits after the decimal point to at most two
+                setPrice(cleanedInput);
+              }}
+              maxLength={14}
+              keyboardType="numeric"
+              returnKeyType={Platform.OS === 'ios' ? 'done' : 'next'}
+              // returnKeyType="next"
+            />
+          </View>
+        </View>
+        {(Number(minRedeemAmt) > Number(investedAmount) ||
+          Number(investedAmount) <= 0) && (
+          <Text style={{ fontSize: 10, marginVertical: 4, color: '#407CB0' }}>
+            {`${t('low_balance')}`}
+          </Text>
+        )}
+        {price && Number(price) < Number(minRedeemAmt) && (
+          <Text style={{ fontSize: 10, marginVertical: 4, color: '#407CB0' }}>
+            {`${t('min_redemption')} ${Number(minRedeemAmt).toFixed(2)}`}
+          </Text>
+        )}
+
+        {/*  COMMENTED OUT FOR NOW */}
+
+        {/* {price && Number(price) > Number(maxRedeemAmt) && (
+          <Text style={{ fontSize: 10, marginVertical: 4, color: '#407CB0' }}>
+            {`${t('max_redemption')} ${Number(maxRedeemAmt).toFixed(2)}`}
+          </Text>
+        )} */}
+
+        {price && Number(price) > Number(investedAmount) && (
+          <Text style={{ fontSize: 10, marginVertical: 4, color: '#407CB0' }}>
+            {`${t('max_redemption')} ${Number(investedAmount).toFixed(2)}`}
+          </Text>
+        )}
+        <View style={style.dividerTwo} />
+      </View>
+
+      <View>
+        <Card
+          style={{
+            ...style.credit_card,
+            height: hasRedemptionAcct === 'Y' ? 220 : 170
+          }}
+          mode="outlined"
+        >
+          <Text
+            style={{
+              position: 'absolute',
+              left: 20,
+              top: -7,
+              backgroundColor: '#fff',
+              paddingHorizontal: 5,
+              color: '#2D6EA8',
+              fontSize: 10
+            }}
+          >
+            {t('liq_acc_det')}
+          </Text>
+
+          {hasRedemptionAcct === 'Y' ? (
+            <View>
+              <TextInput
+                style={{ ...style.InputTwo, marginBottom: 8, color: 'black' }}
+                value={bankName || ''}
+                editable={false}
+              />
+              <TextInput
+                style={{ ...style.InputTwo, marginBottom: 8, color: 'black' }}
+                value={accountName || ''}
+                editable={false}
+              />
+              <TextInput
+                style={{ ...style.InputTwo, marginBottom: 8, color: 'black' }}
+                value={accountNo || ''}
+                editable={false}
+              />
+            </View>
+          ) : (
+            <View>
+              <SelectList
+                search
+                data={customerBanks?.map(bank => {
+                  return {
+                    value: bank[0],
+                    name: bank[1]
+                  };
+                })}
+                placeholder={t('select_pref_bank')}
+                setSelected={setBankSelect}
+                boxStyles={style.InputOne}
+                dropdownStyles={{
+                  backgroundColor: '#fff',
+                  borderRadius: 5,
+                  marginHorizontal: 15,
+                  marginTop: 25,
+                  height: 150,
+                  position: 'absolute',
+                  borderColor: '#E8E9EB',
+                  borderWidth: 2,
+                  width: 300
+                }}
+                contentContainerStyle={{ justifyContent: 'center' }}
+                onFocus={() => setEcoNameError(null)}
+                dropdownItemStyles={{}}
+                onSelect={() => {
+                  selBank = customerBanks.find(bnk => {
+                    return bnk[0] === bankSelect;
+                  });
+                  setBankCode(selBank[1]);
+                  // console.log('BANKD', bankCode, selBank[1]);
+                }}
+                // defaultOption={{ name: localBankCode, value: localBank }}
+              />
+
+              <TextInput
+                style={style.InputTwo}
+                placeholder={t('enter_acc_no')}
+                autoCapitalize="none"
+                keyboardType="numeric"
+                onFocus={() => {
+                  setEcoNameError(null);
+                  setDisableContinue(false);
+                }}
+                maxLength={14}
+                autoCorrect={false}
+                onChangeText={txt => {
+                  setAccNum(txt.replace(/[ A-Za-z.*@_,!=/#&+-]*$/g, ''));
+                  // console.log(txt, '000', accNum);
+                }}
+              />
+            </View>
+          )}
+        </Card>
+        {/* {!banksList && (
+          <TouchableOpacity style={{ alignItems: 'center' }}>
+            <Image source={RefreshIcon} style={{ width: 30, height: 30 }} />
+          </TouchableOpacity>
+        )} */}
+      </View>
+      {disableContinue && ecoNameData?.data.accountName && (
+        <View
+          style={{
+            // paddingBottom: 10,
+            top: -15,
+            backgroundColor: '#fff'
+          }}
+        >
+          <TextInput
+            style={style.InputTwo}
+            selectionColor="#2E6DA8"
+            value={ecoNameData?.data.accountName}
+            placeholder={t('acct_name')}
+            editable={false}
+          />
+        </View>
+      )}
+      {ecoNameLoading ? (
+        <View
+          style={{
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginTop: '5%'
+          }}
+        >
+          <ActivityIndicator size="small" color="#2E6DA8" />
+        </View>
+      ) : (
+        <View style={{ alignItems: 'center' }}>
+          <Text
+            style={{
+              fontSize: 16,
+              fontWeight: '500',
+              color: 'red',
+              zIndex: -1
+            }}
+          >
+            {ecoNameError?.message}
+          </Text>
+        </View>
+      )}
+      {/* THIS BUTTON IS FOR TRIGGERING VALIDATE ACCOUNT DETAILS INPUTTED FOR REDEMPTION */}
+      {(!disableContinue || !proceed || ecoNameError !== null) &&
+      hasRedemptionAcct !== 'Y' ? (
+        <View style={{ alignSelf: 'center', width: '100%', paddingTop: 20 }}>
+          <BluButton
+            title={t('verify')}
+            disabled={
+              accNum.length <= 5 ||
+              Number(price) < Number(minRedeemAmt) ||
+              !bankSelect
+            }
+            onPressFunc={() => {
+              handleVerify();
+              setEcoNameLoading(true);
+              setVerify(!verif);
+            }}
+          />
+        </View>
+      ) : (
+        <View style={{ alignSelf: 'center', width: '100%', paddingTop: 20 }}>
+          <BluButton
+            title={t('proceed')}
+            onPressFunc={() => {
+              // setEcoNameLoading(true);
+              if (!ecoNameLoading && ecoNameError === null) {
+                // this dispatch caters for only if the user does not have an existing redemption account.
+                dispatch(
+                  updateUserState({
+                    ...userState,
+                    userData: {
+                      ...userData,
+                      redemptionProductData: {
+                        ...redemptionProductData,
+                        liquidAmount: price,
+                        redemptionAccNum: accNum,
+                        redemptionBank: bankSelect,
+                        redemptionAccName: ecoNameData?.data.accountName || ''
+                      }
+                    }
+                  })
+                );
+                navigation.navigate('SetPin', {
+                  nextScreen: 'SuccessfulScreen',
+                  nextScreenParams: {
+                    message: `${t('transact_pin_success')}`,
+                    buttonTitle: `${t('continue')}`,
+                    onPress: `${'RedemptionSummary'}`
+                    // params: { screen: `${'RedemptionSummary'}` } { liqAmt, accNum, bankSelect }
+                  }
+                });
+              }
+            }}
+            disabled={
+              // hasRedemptionAcct !== 'Y' ||
+              !price ||
+              Number(price) > Number(investedAmount) ||
+              Number(price) < Number(minRedeemAmt) ||
+              (hasRedemptionAcct === 'Y' && !accountNo)
+              //   // ? false
+              //   // : !!(!price || Number(price) > Number(investedAmount))
+              // }
+              // disabled={
+              //   hasRedemptionAcct !== 'Y' ||
+              //   !price ||
+              //   Number(price) > Number(investedAmount) ||
+              //   Number(price) > Number(maxRedeemAmt) ||
+              //   Number(price) < Number(minRedeemAmt)
+              //   // ? false
+              //   // : !!(!price || Number(price) > Number(investedAmount))
+            }
+          />
+        </View>
+      )}
+
+      {/* <View style={{ alignSelf: 'center', width: '100%', paddingTop: 20 }}>
+        <BluButton
+          title={t('proceed')}
+          onPressFunc={() => {
+            // setEcoNameLoading(true);
+            // if (!ecoNameLoading && ecoNameError === null) {
+            navigation.navigate('Liquidation2Screen', { selectedProduct });
+            // }
+          }}
+        />
+      </View> */}
+    </HeaderScreenBuy>
+  );
+};
+
+const style = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+    position: 'relative'
+  },
+  content: {
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  dividerOne: {
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#F2F2F2',
+    justifyContent: 'center',
+    bottom: 22,
+    width: 355,
+    alignSelf: 'center'
+  },
+  dividerTwo: {
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#F2F2F2',
+    alignSelf: 'center',
+    top: 10,
+    width: 355
+  },
+  credit_card: {
+    margin: 25,
+    position: 'relative',
+    width: '90%',
+    alignSelf: 'center',
+    marginTop: 90,
+    height: 170,
+    marginHorizontal: 10,
+    borderRadius: 12,
+    borderColor: '#EEF4BA',
+    borderWidth: 2,
+    shadowColor: '#000',
+    elevation: 10,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: {
+      height: 20,
+      width: 15
+    }
+  },
+  InputOne: {
+    borderWidth: 2,
+    height: 50,
+    justifyContent: 'space-between',
+    top: 18,
+    alignSelf: 'center',
+    width: 300,
+    borderColor: '#E8E9EB',
+    borderRadius: 10
+  },
+  InputTwo: {
+    borderWidth: 2,
+    height: 50,
+    justifyContent: 'center',
+    alignSelf: 'center',
+    top: 35,
+    width: 300,
+    borderColor: '#E8E9EB',
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    zIndex: -2
+  }
+});
+
+export default RedemptionAmountScreen;

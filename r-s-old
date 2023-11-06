@@ -1,0 +1,674 @@
+/* eslint-disable react/prop-types */
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator
+} from 'react-native';
+import { Card } from 'react-native-paper';
+import { useTranslation } from 'react-i18next';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  post,
+  useAuthHook,
+  usePostApiCall
+} from '../../../shared/hooks/apiHooks';
+import HeaderScreenBuy from '../components/HeaderScreenBuy';
+import { BluButton } from '../../onboarding/components';
+import { AppDispatch, RootState } from '../../../shared/store';
+import { countries } from '../../../shared/utils/countries';
+import { redemptionPayment } from '../../../shared/store/slices/transactions';
+import { ADD_REDEMPTION_ACCOUNT } from '../../../shared/utils/constants';
+import ErrorImg from '../../../shared/assets/images/error-icon.svg';
+import { Popup } from '../../../shared/components';
+import { updateUserState } from '../../../shared/store/slices/user';
+
+export default function RedemptionSummary({ navigation }: any) {
+  const { t } = useTranslation();
+  const dispatch = useDispatch<AppDispatch>();
+  const TransactionState = useSelector(
+    (state: RootState) => state.transactions
+  );
+  const { transactionData, transactionLoading, transactionError } =
+    TransactionState;
+
+  const userState = useSelector((state: RootState) => state.user);
+  const { userData } = userState;
+
+  const affiliateLocale = countries.find(
+    x => `E${x?.countryCode}` === userData?.affiliateCode
+  )?.locale;
+
+  const affiliateCurrencyCode = countries.find(
+    x => `E${x?.countryCode}` === userData?.affiliateCode
+  )?.countryCcy;
+
+  const hasRedemptionAcct = userData?.hasRedemptionAcct;
+
+  // const balance = userData?.balance;
+  // const banks = userData?.baksList;
+  // const currency = getCountriesFromCode(countryCode?.substring(1, 3))?.currency;
+
+  const [showPopup, setShowPopup] = useState(false);
+
+  // DATE FORMATTER
+  const dt = new Date();
+
+  let day;
+  switch (dt.getMonth() + 1) {
+    case 1:
+      day = 'JAN';
+      break;
+    case 2:
+      day = 'FEB';
+      break;
+    case 3:
+      day = 'MAR';
+      break;
+    case 4:
+      day = 'APR';
+      break;
+    case 5:
+      day = 'MAY';
+      break;
+    case 6:
+      day = 'JUN';
+      break;
+    case 7:
+      day = 'JUL';
+      break;
+    case 8:
+      day = 'AUG';
+      break;
+    case 9:
+      day = 'SEP';
+      break;
+    case 10:
+      day = 'OCT';
+      break;
+    case 11:
+      day = 'NOV';
+      break;
+    case 12:
+      day = 'DEC';
+      break;
+    default:
+      day = 'JAN';
+  }
+
+  const finalDate = `${dt.getDate()}-${day}-${dt.getFullYear()}`;
+
+  const amountFormatter = (amount: number) => {
+    return new Intl.NumberFormat(affiliateLocale, {
+      style: 'currency',
+      currency: affiliateCurrencyCode,
+      currencyDisplay: 'symbol'
+    }).format(amount);
+  };
+
+  // console.log(
+  //   userData?.redemptionProductData,
+  //   '===userData?.redemptionProductData===='
+  // );
+  const selectedProduct = userData?.redemptionProductData?.fundFullName;
+  // const investedAmount = userData?.redemptionProductData?.minimumBalance;
+  const investedAmount = userData?.redemptionProductData?.buying_amount;
+  const accNum =
+    userData?.redemptionProductData?.redemptionAccNum ||
+    userData?.redemptionAccountData?.accountNo;
+  const bankSelect =
+    userData?.redemptionProductData?.redemptionBank ||
+    userData?.redemptionAccountData?.bankName;
+  const liqAmtString = userData?.redemptionProductData?.liquidAmount;
+  const accountName =
+    userData?.redemptionProductData?.redemptionAccName ||
+    userData?.redemptionAccountData.accountName;
+
+  const [authToken] = useAuthHook();
+
+  useEffect(() => {
+    if (transactionLoading) {
+      navigation.navigate('VerifyingDetailsScreen', {
+        title: `${t('validating_redeem')}`,
+        stateKey: 'transactions',
+        nextScreen: 'SuccessfulScreen',
+        backScreen: 'RedemptionSummary',
+        nextScreenParams: {
+          message: `${t('redemption_req_success')}`,
+          buttonTitle: `${t('continue')}`,
+          onPress: `${'DashboardTabs'}`,
+          additionalParam: {}
+        }
+      });
+    }
+  }, [transactionData, transactionLoading]);
+
+  const addRedemptionAccountRequest = {
+    userId: userData?.userId,
+    affiliateCode: userData?.affiliateCode,
+    bankName: bankSelect,
+    accountNo: accNum,
+    acctName: accountName
+  };
+  const [addRedData, setaddRedData] = useState<{} | any>(null);
+  const [addRedLoading, setaddRedLoading] = useState<{} | any>(false);
+  const [addRedError, setaddRedError] = useState<{} | any>('');
+  const [resCode, setResCode] = useState<{} | any>(null);
+  const call = async (url: any, payload: any) => {
+    setaddRedError(null);
+    setaddRedData(null);
+    setaddRedLoading(true);
+    await post(url, {}, payload)
+      .then(res => {
+        setaddRedLoading(false);
+        // console.log(res, 'res in add redemption call');
+        if (
+          res.data?.responseCode !== '200' &&
+          !res.data?.responseCode.startsWith('0') &&
+          res.data?.responseCode !== '111'
+        ) {
+          setaddRedError({
+            code: res?.data?.responseCode,
+            message: `${res.data?.responseMessage}`
+          });
+        } else {
+          // console.log(res?.data, 'res data in add redemption');
+          setaddRedData(res?.data);
+          setaddRedError(null);
+          setResCode(res?.data?.responseCode);
+          dispatch(
+            updateUserState({
+              ...userState,
+              userData: {
+                ...userData,
+                hasRedemptionAcct: 'Y'
+              }
+            })
+          );
+        }
+      })
+      .catch(err => {
+        // console.error(err, '--err--');
+        setaddRedError({ code: err.code, message: t('failed_request') });
+        setaddRedLoading(false);
+      });
+  };
+
+  const addRedAct = () => {
+    // console.log('RedemptionRequest:::', addRedemptionAccountRequest);
+    if (hasRedemptionAcct !== 'Y') {
+      // console.log('setting redemption account');
+      call(ADD_REDEMPTION_ACCOUNT, addRedemptionAccountRequest);
+    }
+  };
+  useEffect(() => {
+    if (transactionError) {
+      setShowPopup(true);
+    }
+  }, []);
+
+  return (
+    <View
+      style={{
+        backgroundColor: '#fff',
+        flex: 1
+      }}
+    >
+      <Popup
+        showUp={showPopup}
+        setPopup={setShowPopup}
+        onPressFunction={() => {
+          navigation.navigate('DashboardTabs', {
+            screen: `${'DashboardScreen'}`
+          });
+        }}
+        OtpErrorFooter
+      >
+        <View
+          style={{
+            paddingVertical: 20,
+            paddingHorizontal: 5,
+            marginBottom: 30,
+            backgroundColor: '#fff',
+            alignContent: 'center'
+          }}
+        >
+          <ErrorImg width={280} height={280} style={{ marginHorizontal: 10 }} />
+          <Text style={{ textAlign: 'center', paddingTop: 20 }}>
+            {/* {t('no_contact_details')} */}
+            {transactionError && `${transactionError?.message}`}
+          </Text>
+        </View>
+      </Popup>
+      <HeaderScreenBuy
+        titleLeft={t('liquidate')}
+        actionRight={t('back')}
+        closePressFunction={() => {
+          navigation.navigate('RedemptionAmountScreen');
+        }}
+        onPressActionRightValue="false"
+        wantUnderLine={false}
+      >
+        <View
+          style={{
+            marginLeft: 10
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 12,
+              color: '#8C8C8C',
+              marginTop: -30,
+              fontWeight: '600'
+            }}
+          >
+            {t('selected')}
+          </Text>
+        </View>
+
+        <View
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            marginLeft: 10
+          }}
+        >
+          <View>
+            <Text
+              style={{
+                fontSize: 14,
+                fontWeight: '500'
+              }}
+            >
+              {selectedProduct}
+            </Text>
+          </View>
+          <View>
+            <TouchableOpacity
+              onPress={() => {
+                navigation.navigate('SelectProductScreen');
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 10,
+                  textDecorationLine: 'underline',
+                  marginRight: 15,
+                  fontWeight: '600'
+                }}
+              >
+                {t('change')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View
+          style={{
+            marginTop: 5,
+            marginBottom: 5
+          }}
+        />
+        <View style={{ ...styles.cardDivider }} />
+
+        <View style={{ alignItems: 'center' }}>
+          <Text
+            style={{
+              fontSize: 20,
+              color: '#000',
+              fontWeight: '300',
+              padding: 10
+            }}
+          >
+            {t('dash_balance')}
+          </Text>
+          <Text
+            style={{
+              fontSize: 26,
+              fontWeight: '500',
+              alignSelf: 'center',
+              top: 5,
+              bottom: 5
+            }}
+          >
+            {amountFormatter(investedAmount)}
+          </Text>
+        </View>
+
+        <View
+          style={{
+            marginBottom: 15
+          }}
+        />
+        <View style={{ ...styles.cardDivider }} />
+
+        <View>
+          <Card style={{ ...styles.credit_card }} mode="outlined">
+            <Text
+              style={{
+                position: 'absolute',
+                left: 20,
+                top: -7,
+                backgroundColor: '#fff',
+                paddingHorizontal: 5,
+                color: '#2D6EA8',
+                fontSize: 10
+              }}
+            >
+              {t('liq_details')}
+            </Text>
+
+            <Card.Content
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                marginTop: 20,
+                marginBottom: 20
+              }}
+            >
+              <View
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  // justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: '#000',
+                    fontWeight: '300',
+                    opacity: 1.0,
+                    flexBasis: '60%'
+                  }}
+                >
+                  {t('liq_amount')}
+                </Text>
+
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700'
+                  }}
+                >
+                  {amountFormatter(+liqAmtString)}
+                </Text>
+              </View>
+            </Card.Content>
+
+            <View style={{ ...styles.cardDivider }} />
+            <Card.Content
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                marginTop: 20,
+                marginBottom: 20
+              }}
+            >
+              <View
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  flexDirection: 'row'
+                  // justifyContent: 'space-between'
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: '#000',
+                    fontWeight: '300',
+                    opacity: 1.0,
+                    flexBasis: '60%'
+                  }}
+                >
+                  {t('dest_bank')}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700'
+                  }}
+                >
+                  {`${bankSelect?.split(' ')[0]} ${
+                    bankSelect?.split(' ')[1] ? bankSelect?.split(' ')[1] : ''
+                  }`}
+                </Text>
+              </View>
+            </Card.Content>
+            <View style={{ ...styles.cardDivider }} />
+            <Card.Content
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                marginTop: 20,
+                marginBottom: 20
+              }}
+            >
+              <View
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  flexDirection: 'row'
+                  // justifyContent: 'space-between'
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: '#000',
+                    fontWeight: '300',
+                    opacity: 1.0,
+                    flexBasis: '60%'
+                  }}
+                >
+                  {t('dest_acc')}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700'
+                  }}
+                >
+                  {accNum}
+                </Text>
+              </View>
+            </Card.Content>
+            <View style={{ ...styles.cardDivider }} />
+            <Card.Content
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                marginTop: 20,
+                marginBottom: 20
+              }}
+            >
+              <View
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: '#000',
+                    fontWeight: '300',
+                    opacity: 1.0,
+                    flexBasis: '60%'
+                  }}
+                >
+                  {t('charge')}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    flexBasis: '60%'
+                  }}
+                >
+                  {`${amountFormatter(0.0)}`}
+                </Text>
+              </View>
+            </Card.Content>
+            <View style={{ ...styles.cardDivider }} />
+            <View
+              style={{
+                height: 18
+              }}
+            />
+            <View />
+          </Card>
+        </View>
+        {addRedLoading && (
+          <View
+            style={{
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: '5%'
+            }}
+          >
+            <Text>
+              {t('saving_account_details')}
+              <ActivityIndicator size="small" color="#2E6DA8" />
+            </Text>
+          </View>
+        )}
+
+        {hasRedemptionAcct !== 'Y' && !resCode?.startsWith('0') ? (
+          <View
+            style={{
+              marginTop: 50,
+              alignSelf: 'center',
+              width: '95%'
+            }}
+          >
+            <BluButton
+              disabled={addRedLoading}
+              title={t('save_account_details')}
+              onPressFunc={() => {
+                addRedAct();
+              }}
+            />
+          </View>
+        ) : (
+          <View
+            style={{
+              marginTop: 50,
+              alignSelf: 'center',
+              width: '95%'
+            }}
+          >
+            <BluButton
+              title={t('pop_confirm')}
+              onPressFunc={() => {
+                dispatch(
+                  redemptionPayment({
+                    request: {
+                      cnty: userData?.affiliateCode,
+                      accountNo: userData?.edcAccountNo,
+                      productNum: userData?.redemptionProductData?.fund_num,
+                      transDate: finalDate,
+                      amount: liqAmtString,
+                      bankAccountNo: accNum,
+                      bankAccountName: accountName,
+                      bank: bankSelect,
+                      userId: userData?.userId,
+                      fundFullName: userData?.redemptionProductData?.fund_name
+                    },
+                    token: authToken
+                  })
+                );
+              }}
+            />
+          </View>
+        )}
+      </HeaderScreenBuy>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1
+  },
+  credit_card: {
+    margin: 25,
+    width: '90%',
+    alignSelf: 'center',
+    marginTop: 40,
+    marginHorizontal: 10,
+    borderRadius: 12,
+    borderColor: '#EEF4BA',
+    borderWidth: 2,
+    // shadowColor: '#F0F0F0',
+    shadowColor: '#000',
+    elevation: 10,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: {
+      height: 20,
+      width: 15
+    }
+  },
+  fundAccountContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    justifyContent: 'center'
+  },
+  topDivider: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#f2f2f2',
+    margin: 10
+  },
+  cardDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2f2f2',
+    margin: 0,
+    width: '90%',
+    alignSelf: 'center'
+  },
+  bottomBtms: {
+    paddingTop: 150,
+    backgroundColor: '#fff',
+    paddingBottom: 15
+  },
+  securities: {
+    padding: 0
+  },
+  trades: {
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: -25
+  },
+  titleHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    width: '65%'
+  },
+  title: {
+    fontWeight: '700',
+    fontSize: 12
+  },
+  trendAmount: {
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    textAlign: 'center'
+  },
+  share: {
+    display: 'flex',
+    flexDirection: 'row',
+    marginTop: 10,
+    color: '#06789d'
+  },
+  header: {}
+});

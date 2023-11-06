@@ -1,0 +1,291 @@
+/* eslint-disable react/prop-types */
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, FlatList } from 'react-native';
+import { Card } from 'react-native-paper';
+import { RadioButton } from 'react-native-radio-buttons-group';
+import { useTranslation } from 'react-i18next';
+import { TouchableOpacity } from 'react-native-gesture-handler';
+import { useDispatch, useSelector } from 'react-redux';
+import { BluButton } from '../../onboarding/components';
+import HeaderScreenBuy from '../components/HeaderScreenBuy';
+import {
+  GET_BANKS_URL,
+  GET_REDEMPTION_ACCOUNT,
+  REDEMPTION_PRODUCTPRICE_URL
+} from '../../../shared/utils/constants';
+import { useAuthHook, usePostApiCall } from '../../../shared/hooks/apiHooks';
+import { AppDispatch, RootState } from '../../../shared/store';
+import { updateUserState } from '../../../shared/store/slices/user';
+import { Loader } from '../../../shared/components';
+import ErrorImg from '../../../shared/assets/images/error-icon.svg';
+
+export default function SelectProductScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const [chosenOption, setChosenOption] = useState({ fund_name: '' });
+  const [reload, setReload] = useState<Boolean>(false);
+
+  // const [authToken] = useAuthHook();
+  const userState = useSelector((state: RootState) => state.user);
+  const { userData } = userState;
+  // const cnty = `E${userData?.affiliateCode?.substring(1, 3)}`;
+  const dispatch = useDispatch<AppDispatch>();
+
+  // // GET THE LIST OF BANKS IF REDEMPTION ACCOUNT IS NOT SET
+  // const [banksList, banksLoading, banksError] = usePostApiCall({
+  //   url: GET_BANKS_URL,
+  //   headers: {
+  //     Authorization: `Bearer ${authToken}`
+  //   },
+  //   requestPayload: { destinationCountry: cnty, affiliateCode: cnty }
+  // });
+
+  // GET THE REDEMPTION PRODUCTS LIST
+  const redemptionDataRequest = {
+    account: userData?.edcAccountNo,
+    userId: userData?.userId,
+    cnty: userData?.country
+  };
+
+  const [redemptionData, redemptionLoading, redemptionError] = usePostApiCall({
+    url: REDEMPTION_PRODUCTPRICE_URL,
+    headers: {
+      // Authorization: `Bearer ${authToken}`
+    },
+    requestPayload: redemptionDataRequest,
+    deps: [reload]
+  });
+  useEffect(() => {
+    console.log(
+      redemptionData?.data?.cust_balances,
+      'redemptionData in useEffect',
+      redemptionData?.data,
+      'redemptionData in useEffect',
+      redemptionLoading,
+      ' redemptionLoading',
+      redemptionError,
+      'redemptionError'
+    );
+  }, [redemptionData, redemptionLoading, redemptionError]);
+
+  // GET REDEMPTION ACCOUNT DETAILS
+  // const hasRedemptionAcct = userData?.hasRedemptionAcct;
+  const redemptionAccountRequest = {
+    userId: userData?.userId,
+    affiliateCode: userData?.affiliateCode
+  };
+
+  const [redemptionAccountData, redemptionAccLoading, redemptionAccError] =
+    usePostApiCall({
+      url: GET_REDEMPTION_ACCOUNT,
+      headers: {
+        // Authorization: `Bearer ${authToken}`
+      },
+      requestPayload: redemptionAccountRequest
+    });
+  // useEffect(() => {
+  //   console.log(
+  //     'redemptionAccError ::::: ',
+  //     redemptionAccError,
+  //     'redemptionAccLoading :::',
+  //     redemptionAccLoading,
+  //     'redemptionAccountData ::: ',
+  //     redemptionAccountData
+  //   );
+  // }, [redemptionAccError, redemptionAccLoading, redemptionAccountData]);
+
+  // useEffect(() => {
+  //   // console.log(
+  //   //   'banksError ::::: ',
+  //   //   banksError,
+  //   //   'banksList :::',
+  //   //   banksList,
+  //   //   'banksLoading :::',
+  //   //   banksLoading
+  //   // );
+  // }, [banksLoading, banksList, banksError]);
+
+  // useEffect(() => {
+  //   console.log('BANKS LIST::::::', banksList);
+  //   if (banksList) {
+  //     // console.log('BANKS LIST::::::', banksList);
+  //     dispatch(
+  //       updateUserState({
+  //         ...userState,
+  //         userData: {
+  //           ...userData,
+  //           banksList: banksList?.data
+  //         }
+  //       })
+  //     );
+  //   }
+  // }, [banksList]);
+
+  // useEffect(() => {
+  //     dispatch(
+  //       updateUserState({
+  //         ...userState,
+  //         userData: {
+  //           ...userData,
+  //           redemptionAccountData: redemptionAccountData?.data
+  //         }
+  //       })
+  //     );
+  // }, [redemptionAccountData]);
+
+  /*
+  if (hasRedemptionAcct === 'Y' && redemptionAccountData) {
+    // console.log('RedAccount:::', redemptionAccountData?.data);
+    dispatch(
+      updateUserState({
+        ...userState,
+        userData: {
+          ...userData,
+          redemptionAccountData: redemptionAccountData?.data
+        }
+      })
+    );
+  }
+*/
+  return (
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <HeaderScreenBuy
+        titleLeft={t('liquidate')}
+        actionRight={t('back')}
+        closePressFunction={() => {
+          navigation.navigate('DashboardTabs', { screen: `${'InvestScreen'}` });
+        }}
+        //   optionalParams={{ boy: 'string' }}
+        titleCenterHeading={t('select_product_title')}
+        wantUnderLine={false}
+      >
+        <View style={{ marginTop: '5%' }}>
+          {redemptionLoading && (
+            <View
+              style={{
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: '50%'
+              }}
+            >
+              <Loader />
+            </View>
+          )}
+
+          {!redemptionData?.data?.cust_balances && !redemptionLoading && (
+            <TouchableOpacity
+              onPress={() => {
+                setReload(!reload);
+              }}
+            >
+              <View style={{ alignItems: 'center', paddingTop: 50 }}>
+                <ErrorImg width={200} height={200} />
+                <Text style={{ fontSize: 16 }}>{t('assets_no_product')}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {redemptionData?.data?.cust_balances.length <= 0 &&
+            !redemptionLoading && (
+              <View style={{ alignItems: 'center', paddingTop: 50 }}>
+                <Text style={{ fontSize: 16 }}>
+                  {t('assets_no_product_for_user')}
+                </Text>
+              </View>
+            )}
+
+          {redemptionData?.data?.cust_balances.length > 0 && (
+            <Card style={styles.credit_card} mode="outlined">
+              <FlatList
+                data={redemptionData?.data?.cust_balances}
+                renderItem={({ item }) => (
+                  <View>
+                    <TouchableOpacity onPress={() => setChosenOption(item)}>
+                      <Card.Content
+                        style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          marginVertical: '3%',
+                          paddingHorizontal: '6%',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <View style={{ width: '80%' }}>
+                          <Text
+                            style={{
+                              fontSize: 16,
+                              color: '#1a1a1a'
+                            }}
+                          >
+                            {item.fund_name}
+                          </Text>
+                        </View>
+                        <RadioButton
+                          id={item.fund_num}
+                          color="#BFD602"
+                          selected={chosenOption?.fund_name === item.fund_name}
+                          size={20}
+                        />
+                      </Card.Content>
+                    </TouchableOpacity>
+                    <View style={{ ...styles.cardDivider }} />
+                  </View>
+                )}
+              />
+            </Card>
+          )}
+        </View>
+        <View
+          style={{
+            alignSelf: 'center',
+            width: '90%',
+            marginBottom: '10%',
+            marginTop: '23%'
+          }}
+        >
+          <BluButton
+            title={t('select_product_proceed')}
+            disabled={!chosenOption?.fund_name}
+            onPressFunc={() => {
+              // redemptionProductData
+              dispatch(
+                updateUserState({
+                  ...userState,
+                  userData: {
+                    ...userData,
+                    redemptionProductData: chosenOption,
+                    redemptionAccountData: redemptionAccountData?.data
+                  }
+                })
+              );
+              navigation.navigate('RedemptionAmountScreen');
+            }}
+          />
+        </View>
+      </HeaderScreenBuy>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  cardDivider: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#f2f2f2',
+    margin: '5%'
+  },
+  credit_card: {
+    marginBottom: '10%',
+    paddingTop: '8%',
+    marginHorizontal: '5%',
+    borderRadius: 12,
+    borderColor: '#BFD602',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 5,
+      height: 20
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 10
+  }
+});
